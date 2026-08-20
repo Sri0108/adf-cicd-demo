@@ -3,7 +3,7 @@
 	"properties": {
 		"activities": [
 			{
-				"name": "Copy_Input_To_Raw",
+				"name": "Copy_Input_SalesTo_Raw",
 				"type": "Copy",
 				"dependsOn": [],
 				"policy": {
@@ -57,7 +57,7 @@
 				"type": "Copy",
 				"dependsOn": [
 					{
-						"activity": "Copy_Input_To_Raw",
+						"activity": "Copy_Input_SalesTo_Raw",
 						"dependencyConditions": [
 							"Succeeded"
 						]
