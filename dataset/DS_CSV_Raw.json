@@ -1,0 +1,25 @@
+{
+	"name": "DS_CSV_Raw",
+	"properties": {
+		"linkedServiceName": {
+			"referenceName": "LS_ADLS_Labs",
+			"type": "LinkedServiceReference"
+		},
+		"annotations": [],
+		"type": "DelimitedText",
+		"typeProperties": {
+			"location": {
+				"type": "AzureBlobFSLocation",
+				"fileName": "sample_sales_200_rows.csv",
+				"folderPath": "raw",
+				"fileSystem": "data"
+			},
+			"columnDelimiter": ",",
+			"escapeChar": "\\",
+			"firstRowAsHeader": true,
+			"quoteChar": "\""
+		},
+		"schema": []
+	},
+	"type": "Microsoft.DataFactory/factories/datasets"
+}

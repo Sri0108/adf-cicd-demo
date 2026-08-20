@@ -1,0 +1,15 @@
+{
+	"name": "adf-data-engineering-labs",
+	"properties": {
+		"trustModeClaimForMi": {
+			"value": "Disabled",
+			"editable": true
+		}
+	},
+	"location": "centralindia",
+	"identity": {
+		"type": "SystemAssigned",
+		"principalId": "06399c97-0c36-4894-8c70-32367c03f249",
+		"tenantId": "928be285-1536-4f8b-8761-9b6f84272368"
+	}
+}
