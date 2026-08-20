@@ -1,0 +1,59 @@
+name: ADF CI/CD Demo
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+
+  validate:
+    name: Validate ADF
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout ADF Code
+        uses: actions/checkout@v4
+
+      - name: Validate ADF Resources
+        run: |
+          echo "Validating ADF pipeline..."
+          test -d pipeline
+          echo "ADF validation successful"
+
+  deploy-dev:
+    name: Deploy to DEV
+    needs: validate
+    runs-on: ubuntu-latest
+    environment: dev
+
+    steps:
+      - name: Deploy ADF to DEV
+        run: |
+          echo "Deploying ADF pipeline to DEV..."
+          echo "PL_Sales_Load deployed successfully"
+
+  deploy-qa:
+    name: Deploy to QA
+    needs: deploy-dev
+    runs-on: ubuntu-latest
+    environment: qa
+
+    steps:
+      - name: Deploy ADF to QA
+        run: |
+          echo "Deploying ADF pipeline to QA..."
+          echo "QA deployment successful"
+
+  deploy-prod:
+    name: Deploy to PROD
+    needs: deploy-qa
+    runs-on: ubuntu-latest
+    environment: prod
+
+    steps:
+      - name: Deploy ADF to PROD
+        run: |
+          echo "Deploying ADF pipeline to PROD..."
+          echo "PROD deployment successful"
