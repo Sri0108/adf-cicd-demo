@@ -1,0 +1,234 @@
+{
+	"name": "PL_Ingest_Products",
+	"properties": {
+		"activities": [
+			{
+				"name": "Copy_Products_API_To_Raw",
+				"type": "Copy",
+				"dependsOn": [],
+				"policy": {
+					"timeout": "0.12:00:00",
+					"retry": 3,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "RestSource",
+						"httpRequestTimeout": "00:01:40",
+						"requestInterval": "00.00:00:00.010"
+					},
+					"sink": {
+						"type": "JsonSink"
+					},
+					"enableStaging": false
+				},
+				"inputs": [
+					{
+						"referenceName": "DS_REST_Products",
+						"type": "DatasetReference",
+						"parameters": {
+							"pLimit": "30",
+							"pSkip": "0"
+						}
+					}
+				],
+				"outputs": [
+					{
+						"referenceName": "DS_ADLS_Raw_Products_JSON",
+						"type": "DatasetReference",
+						"parameters": {
+							"pFolderPath": "project1/raw/products",
+							"pFileName": "products.json"
+						}
+					}
+				]
+			},
+			{
+				"name": "Copy_Products_Raw_To_Staging",
+				"type": "Copy",
+				"dependsOn": [
+					{
+						"activity": "Copy_Products_API_To_Raw",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "0.12:00:00",
+					"retry": 3,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "JsonSource",
+						"storeSettings": {
+							"type": "AzureBlobFSReadSettings",
+							"recursive": false,
+							"enablePartitionDiscovery": false
+						},
+						"formatSettings": {
+							"type": "JsonReadSettings"
+						}
+					},
+					"sink": {
+						"type": "AzureSqlSink",
+						"writeBehavior": "insert"
+					},
+					"enableStaging": false,
+					"translator": {
+						"type": "TabularTranslator",
+						"mappings": [
+							{
+								"source": {
+									"path": "['id']"
+								},
+								"sink": {
+									"name": "product_id",
+									"type": "Int32"
+								}
+							},
+							{
+								"source": {
+									"path": "['title']"
+								},
+								"sink": {
+									"name": "title",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['description']"
+								},
+								"sink": {
+									"name": "description",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['category']"
+								},
+								"sink": {
+									"name": "category",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['price']"
+								},
+								"sink": {
+									"name": "price",
+									"type": "Decimal"
+								}
+							},
+							{
+								"source": {
+									"path": "['discountPercentage']"
+								},
+								"sink": {
+									"name": "discount_percentage",
+									"type": "Decimal"
+								}
+							},
+							{
+								"source": {
+									"path": "['rating']"
+								},
+								"sink": {
+									"name": "rating",
+									"type": "Decimal"
+								}
+							},
+							{
+								"source": {
+									"path": "['stock']"
+								},
+								"sink": {
+									"name": "stock",
+									"type": "Int32"
+								}
+							},
+							{
+								"source": {
+									"path": "['brand']"
+								},
+								"sink": {
+									"name": "brand",
+									"type": "String"
+								}
+							},
+							{
+								"source": {
+									"path": "['sku']"
+								},
+								"sink": {
+									"name": "sku",
+									"type": "String"
+								}
+							}
+						],
+						"collectionReference": "$['products']"
+					}
+				},
+				"inputs": [
+					{
+						"referenceName": "DS_ADLS_Raw_Products_JSON",
+						"type": "DatasetReference",
+						"parameters": {
+							"pFolderPath": "project1/raw/products",
+							"pFileName": "products.json"
+						}
+					}
+				],
+				"outputs": [
+					{
+						"referenceName": "DS_SQL_Staging_Products",
+						"type": "DatasetReference"
+					}
+				]
+			},
+			{
+				"name": "Merge_Products_To_Curated",
+				"type": "Script",
+				"dependsOn": [
+					{
+						"activity": "Copy_Products_Raw_To_Staging",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "0.12:00:00",
+					"retry": 2,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"linkedServiceName": {
+					"referenceName": "AzureSqlDatabase1",
+					"type": "LinkedServiceReference"
+				},
+				"typeProperties": {
+					"scripts": [
+						{
+							"type": "Query",
+							"text": "MERGE dbo.Products AS target\nUSING dbo.stg_Products AS source\nON target.product_id = source.product_id\nWHEN MATCHED THEN\n    UPDATE SET\n        target.title = source.title,\n        target.description = source.description,\n        target.category = source.category,\n        target.price = source.price,\n        target.discount_percentage = source.discount_percentage,\n        target.rating = source.rating,\n        target.stock = source.stock,\n        target.brand = source.brand,\n        target.sku = source.sku,\n        target.last_updated = SYSUTCDATETIME()\nWHEN NOT MATCHED THEN\n    INSERT (\n        product_id,\n        title,\n        description,\n        category,\n        price,\n        discount_percentage,\n        rating,\n        stock,\n        brand,\n        sku,\n        last_updated\n    )\n    VALUES (\n        source.product_id,\n        source.title,\n        source.description,\n        source.category,\n        source.price,\n        source.discount_percentage,\n        source.rating,\n        source.stock,\n        source.brand,\n        source.sku,\n        SYSUTCDATETIME()\n    );"
+						}
+					]
+				}
+			}
+		],
+		"annotations": []
+	}
+}
