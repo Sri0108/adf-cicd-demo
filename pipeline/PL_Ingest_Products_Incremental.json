@@ -1,10 +1,10 @@
 {
-	"name": "PL_Ingest_Products",
+	"name": "PL_Ingest_Products_Incremental",
 	"properties": {
 		"activities": [
 			{
-				"name": "Copy_Products_API_To_Raw",
-				"type": "Copy",
+				"name": "LK_Get_Products_Watermark",
+				"type": "Lookup",
 				"dependsOn": [],
 				"policy": {
 					"timeout": "0.12:00:00",
@@ -16,42 +16,194 @@
 				"userProperties": [],
 				"typeProperties": {
 					"source": {
-						"type": "RestSource",
-						"httpRequestTimeout": "00:01:40",
-						"requestInterval": "00.00:00:00.010"
+						"type": "AzureSqlSource",
+						"sqlReaderQuery": "SELECT WatermarkValue FROM dbo.ETL_Watermark WHERE SourceSystem = 'DummyJSON' AND EntityName = 'Products'",
+						"partitionOption": "None"
 					},
-					"sink": {
-						"type": "JsonSink"
+					"dataset": {
+						"referenceName": "DS_SQL_Staging_Products",
+						"type": "DatasetReference"
 					},
-					"enableStaging": false
-				},
-				"inputs": [
-					{
-						"referenceName": "DS_REST_Products",
-						"type": "DatasetReference",
-						"parameters": {
-							"pLimit": "30",
-							"pSkip": "0"
-						}
-					}
-				],
-				"outputs": [
-					{
-						"referenceName": "DS_ADLS_Raw_Products_JSON",
-						"type": "DatasetReference",
-						"parameters": {
-							"pFolderPath": "project1/raw/products",
-							"pFileName": "products.json"
-						}
-					}
-				]
+					"firstRowOnly": true
+				}
 			},
 			{
-				"name": "Copy_Products_Raw_To_Staging",
+				"name": "SET_Initial_Skip",
+				"type": "SetVariable",
+				"dependsOn": [
+					{
+						"activity": "LK_Get_Products_Watermark",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"variableName": "currentSkip",
+					"value": {
+						"value": "@int(activity('LK_Get_Products_Watermark').output.firstRow.WatermarkValue)",
+						"type": "Expression"
+					}
+				}
+			},
+			{
+				"name": "UNTIL_Products_Pagination",
+				"type": "Until",
+				"dependsOn": [
+					{
+						"activity": "SET_Initial_Skip",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"expression": {
+						"value": "@equals(variables('hasMore'),false)",
+						"type": "Expression"
+					},
+					"activities": [
+						{
+							"name": "CP_Products_API_To_Raw",
+							"type": "Copy",
+							"dependsOn": [],
+							"policy": {
+								"timeout": "0.12:00:00",
+								"retry": 3,
+								"retryIntervalInSeconds": 30
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"source": {
+									"type": "RestSource",
+									"httpRequestTimeout": "00:01:40",
+									"requestInterval": "00.00:00:00.010"
+								},
+								"sink": {
+									"type": "JsonSink"
+								},
+								"enableStaging": false
+							},
+							"inputs": [
+								{
+									"referenceName": "DS_REST_Products",
+									"type": "DatasetReference",
+									"parameters": {
+										"pSkip": {
+											"value": "@string(variables('currentSkip'))",
+											"type": "Expression"
+										},
+										"pLimit": {
+											"value": "@string(variables('pageSize'))",
+											"type": "Expression"
+										}
+									}
+								}
+							],
+							"outputs": [
+								{
+									"referenceName": "DS_ADLS_Raw_Products_JSON",
+									"type": "DatasetReference",
+									"parameters": {
+										"pFolderPath": {
+											"value": "@concat('project1/raw/products/',formatDateTime(utcNow(),'yyyy/MM/dd'))",
+											"type": "Expression"
+										},
+										"pFileName": {
+											"value": "@concat('products_',string(variables('currentSkip')),'.json')",
+											"type": "Expression"
+										}
+									}
+								}
+							]
+						},
+						{
+							"name": "SET_Products_Has_More",
+							"type": "SetVariable",
+							"dependsOn": [
+								{
+									"activity": "CP_Products_API_To_Raw",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"policy": {
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"variableName": "hasMore",
+								"value": {
+									"value": "@equals(activity('CP_Products_API_To_Raw').output.rowsCopied,variables('pageSize'))",
+									"type": "Expression"
+								}
+							}
+						},
+						{
+							"name": "SET_Calculate_Next_Skip",
+							"type": "SetVariable",
+							"dependsOn": [
+								{
+									"activity": "SET_Products_Has_More",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"policy": {
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"variableName": "nextSkip",
+								"value": {
+									"value": "@add(variables('currentSkip'),variables('pageSize'))",
+									"type": "Expression"
+								}
+							}
+						},
+						{
+							"name": "SET_Products_Next_Page",
+							"type": "SetVariable",
+							"dependsOn": [
+								{
+									"activity": "SET_Calculate_Next_Skip",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"policy": {
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"variableName": "currentSkip",
+								"value": {
+									"value": "@variables('nextSkip')",
+									"type": "Expression"
+								}
+							}
+						}
+					]
+				}
+			},
+			{
+				"name": "CP_Products_Raw_To_Staging",
 				"type": "Copy",
 				"dependsOn": [
 					{
-						"activity": "Copy_Products_API_To_Raw",
+						"activity": "UNTIL_Products_Pagination",
 						"dependencyConditions": [
 							"Succeeded"
 						]
@@ -60,9 +212,7 @@
 				"policy": {
 					"timeout": "0.12:00:00",
 					"retry": 3,
-					"retryIntervalInSeconds": 30,
-					"secureOutput": false,
-					"secureInput": false
+					"retryIntervalInSeconds": 30
 				},
 				"userProperties": [],
 				"typeProperties": {
@@ -70,7 +220,8 @@
 						"type": "JsonSource",
 						"storeSettings": {
 							"type": "AzureBlobFSReadSettings",
-							"recursive": false,
+							"recursive": true,
+							"wildcardFileName": "*.json",
 							"enablePartitionDiscovery": false
 						},
 						"formatSettings": {
@@ -185,7 +336,7 @@
 						"type": "DatasetReference",
 						"parameters": {
 							"pFolderPath": "project1/raw/products",
-							"pFileName": "products.json"
+							"pFileName": "products_0.json"
 						}
 					}
 				],
@@ -197,19 +348,18 @@
 				]
 			},
 			{
-				"name": "Merge_Products_To_Curated",
+				"name": "SCR_Merge_Products_To_Curated",
 				"type": "Script",
 				"dependsOn": [
 					{
-						"activity": "Copy_Products_Raw_To_Staging",
+						"activity": "CP_Products_Raw_To_Staging",
 						"dependencyConditions": [
 							"Succeeded"
 						]
 					}
 				],
 				"policy": {
-					"timeout": "0.12:00:00",
-					"retry": 2,
+					"retry": 0,
 					"retryIntervalInSeconds": 30,
 					"secureOutput": false,
 					"secureInput": false
@@ -223,12 +373,96 @@
 					"scripts": [
 						{
 							"type": "Query",
-							"text": "MERGE dbo.Products AS target\nUSING dbo.stg_Products AS source\nON target.product_id = source.product_id\nWHEN MATCHED THEN\n    UPDATE SET\n        target.title = source.title,\n        target.description = source.description,\n        target.category = source.category,\n        target.price = source.price,\n        target.discount_percentage = source.discount_percentage,\n        target.rating = source.rating,\n        target.stock = source.stock,\n        target.brand = source.brand,\n        target.sku = source.sku,\n        target.last_updated = SYSUTCDATETIME()\nWHEN NOT MATCHED THEN\n    INSERT (\n        product_id,\n        title,\n        description,\n        category,\n        price,\n        discount_percentage,\n        rating,\n        stock,\n        brand,\n        sku,\n        last_updated\n    )\n    VALUES (\n        source.product_id,\n        source.title,\n        source.description,\n        source.category,\n        source.price,\n        source.discount_percentage,\n        source.rating,\n        source.stock,\n        source.brand,\n        source.sku,\n        SYSUTCDATETIME()\n    );"
+							"text": "WITH SourceData AS\n(\n    SELECT\n        product_id,\n        title,\n        description,\n        category,\n        price,\n        discount_percentage,\n        rating,\n        stock,\n        brand,\n        sku,\n        ROW_NUMBER() OVER\n        (\n            PARTITION BY product_id\n            ORDER BY product_id\n        ) AS rn\n    FROM dbo.stg_Products\n)\nMERGE dbo.Products AS target\nUSING\n(\n    SELECT\n        product_id,\n        title,\n        description,\n        category,\n        price,\n        discount_percentage,\n        rating,\n        stock,\n        brand,\n        sku\n    FROM SourceData\n    WHERE rn = 1\n) AS source\n\nON target.product_id = source.product_id\n\nWHEN MATCHED THEN\n    UPDATE SET\n        target.title = source.title,\n        target.description = source.description,\n        target.category = source.category,\n        target.price = source.price,\n        target.discount_percentage = source.discount_percentage,\n        target.rating = source.rating,\n        target.stock = source.stock,\n        target.brand = source.brand,\n        target.sku = source.sku,\n        target.last_updated = SYSUTCDATETIME()\n\nWHEN NOT MATCHED THEN\n    INSERT\n    (\n        product_id,\n        title,\n        description,\n        category,\n        price,\n        discount_percentage,\n        rating,\n        stock,\n        brand,\n        sku,\n        last_updated\n    )\n    VALUES\n    (\n        source.product_id,\n        source.title,\n        source.description,\n        source.category,\n        source.price,\n        source.discount_percentage,\n        source.rating,\n        source.stock,\n        source.brand,\n        source.sku,\n        SYSUTCDATETIME()\n    );"
 						}
 					]
 				}
+			},
+			{
+				"name": "SCR_Validate_Products_Load",
+				"type": "Script",
+				"dependsOn": [
+					{
+						"activity": "SCR_Merge_Products_To_Curated",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "0.12:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"linkedServiceName": {
+					"referenceName": "AzureSqlDatabase1",
+					"type": "LinkedServiceReference"
+				},
+				"typeProperties": {
+					"scripts": [
+						{
+							"type": "Query",
+							"text": "SELECT\n    COUNT(*) AS total_products,\n    COUNT(DISTINCT product_id) AS unique_products,\n    SUM(CASE WHEN product_id IS NULL THEN 1 ELSE 0 END) AS null_product_ids\nFROM dbo.Products;"
+						}
+					],
+					"scriptBlockExecutionTimeout": "02:00:00"
+				}
+			},
+			{
+				"name": "SCR_Update_Products_Watermark",
+				"type": "Script",
+				"dependsOn": [
+					{
+						"activity": "SCR_Validate_Products_Load",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "0.12:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"linkedServiceName": {
+					"referenceName": "AzureSqlDatabase1",
+					"type": "LinkedServiceReference"
+				},
+				"typeProperties": {
+					"scripts": [
+						{
+							"type": "Query",
+							"text": "UPDATE dbo.ETL_Watermark\nSET WatermarkValue = 100\nWHERE SourceSystem = 'DummyJSON'\nAND EntityName = 'Products';"
+						}
+					],
+					"scriptBlockExecutionTimeout": "02:00:00"
+				}
 			}
 		],
+		"variables": {
+			"currentSkip": {
+				"type": "Integer",
+				"defaultValue": 0
+			},
+			"nextSkip": {
+				"type": "Integer",
+				"defaultValue": 0
+			},
+			"pageSize": {
+				"type": "Integer",
+				"defaultValue": 30
+			},
+			"hasMore": {
+				"type": "Boolean",
+				"defaultValue": true
+			}
+		},
 		"annotations": []
 	}
 }
