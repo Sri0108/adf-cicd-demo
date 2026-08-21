@@ -365,7 +365,13 @@
 											"requestInterval": "00.00:00:00.010"
 										},
 										"sink": {
-											"type": "JsonSink"
+											"type": "JsonSink",
+											"storeSettings": {
+												"type": "AzureBlobFSWriteSettings"
+											},
+											"formatSettings": {
+												"type": "JsonWriteSettings"
+											}
 										},
 										"enableStaging": false
 									},
