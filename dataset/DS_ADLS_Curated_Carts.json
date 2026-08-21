@@ -1,0 +1,28 @@
+{
+	"name": "DS_ADLS_Curated_Carts",
+	"properties": {
+		"linkedServiceName": {
+			"referenceName": "LS_ADLS_Labs",
+			"type": "LinkedServiceReference"
+		},
+		"parameters": {
+			"pFolderPath": {
+				"type": "String"
+			}
+		},
+		"annotations": [],
+		"type": "Parquet",
+		"typeProperties": {
+			"location": {
+				"type": "AzureBlobFSLocation",
+				"folderPath": {
+					"value": "@dataset().pFolderPath",
+					"type": "Expression"
+				},
+				"fileSystem": "data"
+			},
+			"compressionCodec": "snappy"
+		},
+		"schema": []
+	}
+}
